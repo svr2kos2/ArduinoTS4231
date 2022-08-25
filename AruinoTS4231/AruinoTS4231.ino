@@ -15,6 +15,7 @@ int sensor_pins[32][2];
 ulong sensor_last_rise[32];
 ulong sensor_last_len[32];
 ulong last_sync_time[32];
+int last_active_station[32];
 bool last_sync_axis[32];
 
 uint8_t configSensor(int SID) {
@@ -23,7 +24,6 @@ uint8_t configSensor(int SID) {
     TS4231  device1(device1_E_pin, device1_D_pin);
     Serial.printf("Configuration %d\r\n", SID);
     if (device1.waitForLight(light_timeout)) {
-
         //Execute this code when light is detected
         Serial.println("Light DETECTED");
 
@@ -65,18 +65,20 @@ void setup() {
     Serial.println();
     Serial.println();
     
-    sensor_cout = 2;
-    sensor_pins[0][0] = 18;
-    sensor_pins[0][1] = 19;
-    sensor_pins[1][0] = 22;
-    sensor_pins[1][1] = 23;
+    sensor_cout = 3;
+    sensor_pins[0][0] = 16;
+    sensor_pins[0][1] = 17;
+    sensor_pins[1][0] = 19;
+    sensor_pins[1][1] = 21;
+    sensor_pins[2][0] = 22;
+    sensor_pins[2][1] = 23;
 
     for (int i = 0; i < sensor_cout; ++i) {
         configSensor(i);
         attachInterruptArg(sensor_pins[i][1], changed, (void*)(i), CHANGE);
     }
     
-    xTaskCreatePinnedToCore(CommunicateThread, "communicate", 4096, NULL, 0, NULL, 1);
+    xTaskCreatePinnedToCore(CommunicateThread, "communicate", 4096, NULL, 1, NULL, 1);
 
 }
 
@@ -123,14 +125,25 @@ void CommunicateThread(void *parameter) {
                 else if (sensor_last_len[i] < 140) { //k3
                     skip = true; data = true; axis = true;
                 }
+
+
                 if (isSyncFlash) {
+                    bool isMainStation = true;
+                    if (sensor_last_rise[i] - last_sync_time[i] < 512)
+                        isMainStation = false;
+                    /*Serial.printf("st%s sk%d ax%s ts%u le%u df%u\r\n",
+                        isMainStation ? "A" : "B", skip, axis ? "Y" : "X", sensor_last_rise[i], sensor_last_len[i],
+                        sensor_last_rise[i] - last_sync_time[i]);*/
                     last_sync_time[i] = sensor_last_rise[i];
-                    last_sync_axis[i] = axis;
-                    //Serial.printf("sync %u %d %d %s\r\n", sensor_last_rise[i], skip, data, axis ? "Y" : "X");
+                    if (!skip) {
+                        last_active_station[i] = isMainStation ? 0 : 1;
+                        last_sync_axis[i] = axis;
+                    }
                 }
                 else {
-
-                    Serial.printf("%d %d %d\r\n", i, sensor_last_rise[i] - last_sync_time[i], last_sync_axis[i]);
+                    //Serial.printf("ts%u le%u\r\n", sensor_last_rise[i], sensor_last_len[i]);
+                    //sid, from station,offset,axis
+                    Serial.printf("%d %d %d %d\r\n", i, last_active_station[i], sensor_last_rise[i] - last_sync_time[i], last_sync_axis[i]);
                 }
                 sensor_last_len[i] = 0;
             }
